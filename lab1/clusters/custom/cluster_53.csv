@@ -1,0 +1,2 @@
+﻿city,population,lat,lon,region_name,region_name_ao,region_iso_code,federal_district,okato,oktmo,kladr_id,fias_id,place_id,cluster,is_cluster_center,distance_to_center_km
+Курильск,1.5,45.2270954,147.8796323,Сахалинская область,,RU-SAK,Дальневосточный,64220501000,64720000001,6500500100000,1e3fbbb8-0c90-4a49-a012-9d5813f4f032,259382403.0,53,True,0.0
