@@ -10,551 +10,215 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.metrics.pairwise import haversine_distances
 
-
-# ============================================================
-# НАСТРОЙКИ
-# ============================================================
-
-DATA_URL = (
-    "https://raw.githubusercontent.com/"
-    "epogrebnyak/ru-cities/main/assets/towns.csv"
-)
-
+# Настройки
+DATA_URL = 'https://raw.githubusercontent.com/epogrebnyak/ru-cities/main/assets/towns.csv'
 EARTH_RADIUS_KM = 6371.0
-
-# ------------------------------------------------------------
-# Папка проекта
-# ------------------------------------------------------------
-
-PROJECT_FOLDER = os.path.dirname(
-    os.path.abspath(__file__)
-)
-
-# ------------------------------------------------------------
-# Локальная база данных
-# ------------------------------------------------------------
-
-DATA_FOLDER = os.path.join(
-    PROJECT_FOLDER,
-    "data"
-)
-
-DATA_FILE = os.path.join(
-    DATA_FOLDER,
-    "towns.csv"
-)
-
-# ------------------------------------------------------------
-# Результаты
-# ------------------------------------------------------------
-
-RESULTS_FOLDER = os.path.join(
-    PROJECT_FOLDER,
-    "clusters"
-)
-
-# ------------------------------------------------------------
-# K-means
-# ------------------------------------------------------------
-
+PROJECT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+DATA_FOLDER = os.path.join(PROJECT_FOLDER, 'data')
+DATA_FILE = os.path.join(DATA_FOLDER, 'towns.csv')
+RESULTS_FOLDER = os.path.join(PROJECT_FOLDER, 'clusters')
 MAX_K = 20
-
-# ------------------------------------------------------------
-# Собственный метод
-# ------------------------------------------------------------
-
 MIN_RADIUS = 50
 MAX_RADIUS = 2000
 RADIUS_STEP = 50
 
 
-# ============================================================
-# ЗАГРУЗКА БАЗЫ
-# ============================================================
+def save_csv(df, path):
+    df.to_csv(path, index=False, encoding='utf-8-sig')
+
+
+def finish_plot(path):
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(path, dpi=200)
+    plt.show()
+
 
 def load_data():
-
-    print("\n" + "=" * 70)
-    print("ЗАГРУЗКА БАЗЫ ГОРОДОВ РОССИИ")
-    print("=" * 70)
-
-    os.makedirs(
-        DATA_FOLDER,
-        exist_ok=True
-    )
-
-    # ========================================================
-    # БАЗА УЖЕ СКАЧАНА
-    # ========================================================
+    print('\n' + '=' * 70, 'ЗАГРУЗКА БАЗЫ ГОРОДОВ РОССИИ', '=' * 70, sep='\n')
+    os.makedirs(DATA_FOLDER, exist_ok=True)
 
     if os.path.exists(DATA_FILE):
-
-        print("\nИспользуется локальная база данных.")
-        print(DATA_FILE)
+        print('\nИспользуется локальная база данных.', DATA_FILE, sep='\n')
 
         try:
-
-            df = pd.read_csv(
-                DATA_FILE
-            )
-
+            df = pd.read_csv(DATA_FILE)
         except Exception as error:
-
-            print("\nОшибка чтения базы:")
-            print(error)
-
+            print('\nОшибка чтения базы:', error, sep='\n')
             return None
-
-    # ========================================================
-    # ПЕРВЫЙ ЗАПУСК
-    # ========================================================
-
     else:
-
-        print("\nЛокальная база данных не найдена.")
-        print("Выполняется первоначальная загрузка...")
+        print(
+            '\nЛокальная база данных не найдена.',
+            'Выполняется первоначальная загрузка...',
+            sep='\n',
+        )
 
         try:
-
-            df = pd.read_csv(
-                DATA_URL
-            )
-
+            df = pd.read_csv(DATA_URL)
         except Exception as error:
-
-            print("\nНе удалось скачать базу.")
-            print("Проверьте подключение к интернету.")
-            print(error)
-
+            print(
+                '\nНе удалось скачать базу.',
+                'Проверьте подключение к интернету.',
+                error,
+                sep='\n',
+            )
             return None
 
         try:
-
-            df.to_csv(
-                DATA_FILE,
-                index=False,
-                encoding="utf-8-sig"
-            )
-
-            print("\nБаза успешно скачана.")
-            print(f"Файл: {DATA_FILE}")
+            save_csv(df, DATA_FILE)
 
             print(
-                "При следующих запусках "
-                "скачивание выполняться не будет."
+                '\nБаза успешно скачана.',
+                f'Файл: {DATA_FILE}',
+                'При следующих запусках скачивание выполняться не будет.',
+                sep='\n',
             )
-
         except Exception as error:
-
-            print("\nОшибка сохранения базы:")
-            print(error)
-
+            print('\nОшибка сохранения базы:', error, sep='\n')
             return None
 
-    # ========================================================
-    # ПРОВЕРКА
-    # ========================================================
-
-    required_columns = [
-        "city",
-        "lat",
-        "lon"
-    ]
+    required_columns = ['city', 'lat', 'lon']
 
     for column in required_columns:
-
         if column not in df.columns:
-
-            print(
-                f"\nОшибка: отсутствует "
-                f"столбец '{column}'."
-            )
-
+            print(f"\nОшибка: отсутствует столбец '{column}'.")
             return None
 
-    # --------------------------------------------------------
-    # Координаты
-    # --------------------------------------------------------
+    df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
+    df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
 
-    df["lat"] = pd.to_numeric(
-        df["lat"],
-        errors="coerce"
-    )
+    if 'population' in df.columns:
+        df['population'] = pd.to_numeric(df['population'], errors='coerce')
 
-    df["lon"] = pd.to_numeric(
-        df["lon"],
-        errors="coerce"
-    )
+    df = df.dropna(subset=['city', 'lat', 'lon'])
+    df = df.reset_index(drop=True)
 
-    # --------------------------------------------------------
-    # Население
-    # --------------------------------------------------------
-
-    if "population" in df.columns:
-
-        df["population"] = pd.to_numeric(
-            df["population"],
-            errors="coerce"
-        )
-
-    # --------------------------------------------------------
-    # Удаляем строки без координат
-    # --------------------------------------------------------
-
-    df = df.dropna(
-        subset=[
-            "city",
-            "lat",
-            "lon"
-        ]
-    )
-
-    df = df.reset_index(
-        drop=True
-    )
-
-    print(
-        f"\nБаза готова."
-    )
-
-    print(
-        f"Количество городов: {len(df)}"
-    )
+    print(f'\nБаза готова.', f'Количество городов: {len(df)}', sep='\n')
 
     return df
 
-
-# ============================================================
-# ИНФОРМАЦИЯ О ДАННЫХ
-# ============================================================
 
 def show_data_info(df):
-
-    print("\n" + "=" * 70)
-    print("ИНФОРМАЦИЯ О ДАННЫХ")
-    print("=" * 70)
-
     print(
-        f"\nКоличество городов: "
-        f"{len(df)}"
+        '\n' + '=' * 70,
+        'ИНФОРМАЦИЯ О ДАННЫХ',
+        '=' * 70,
+        f'\nКоличество городов: {len(df)}',
+        '\nПоля базы:',
+        sep='\n',
     )
-
-    print("\nПоля базы:")
 
     for column in df.columns:
+        print(f' - {column}')
 
-        print(
-            f" - {column}"
-        )
-
-    possible_columns = [
-        "city",
-        "region_name",
-        "federal_district",
-        "population",
-        "lat",
-        "lon"
-    ]
-
-    columns = [
-        column
-        for column in possible_columns
-        if column in df.columns
-    ]
-
-    print("\nПервые 20 городов:\n")
+    possible_columns = ['city', 'region_name', 'federal_district', 'population', 'lat', 'lon']
+    columns = [column for column in possible_columns if column in df.columns]
 
     print(
-        df[columns]
-        .head(20)
-        .to_string(
-            index=False
-        )
+        '\nПервые 20 городов:\n',
+        df[columns].head(20).to_string(index=False),
+        sep='\n',
     )
 
-
-# ============================================================
-# ФИЛЬТРАЦИЯ
-# ============================================================
 
 def filter_data(original_df):
-
     df = original_df.copy()
 
-    print("\n" + "=" * 70)
-    print("ФИЛЬТРАЦИЯ")
-    print("=" * 70)
-
-    print("\n1. Все города")
-    print("2. Минимальное население")
-    print("3. Федеральный округ")
-    print("4. Население + федеральный округ")
-
-    choice = input(
-        "\nВыберите вариант [1]: "
-    ).strip()
-
-    if choice == "":
-        choice = "1"
-
-    # ========================================================
-    # НАСЕЛЕНИЕ
-    # ========================================================
-
-    if choice in ["2", "4"]:
-
-        if "population" not in df.columns:
-
-            print(
-                "\nВ базе отсутствует "
-                "информация о населении."
-            )
-
-        else:
-
-            try:
-
-                minimum_population = float(
-                    input(
-                        "Введите минимальное население: "
-                    )
-                )
-
-                df = df[
-                    df["population"]
-                    >= minimum_population
-                ]
-
-            except ValueError:
-
-                print(
-                    "Некорректное значение населения."
-                )
-
-    # ========================================================
-    # ФЕДЕРАЛЬНЫЙ ОКРУГ
-    # ========================================================
-
-    if choice in ["3", "4"]:
-
-        if "federal_district" not in df.columns:
-
-            print(
-                "\nВ базе отсутствует "
-                "информация о федеральных округах."
-            )
-
-        else:
-
-            districts = sorted(
-                df[
-                    "federal_district"
-                ]
-                .dropna()
-                .unique()
-                .tolist()
-            )
-
-            print(
-                "\nФедеральные округа:"
-            )
-
-            for number, district in enumerate(
-                districts,
-                start=1
-            ):
-
-                print(
-                    f"{number}. {district}"
-                )
-
-            try:
-
-                number = int(
-                    input(
-                        "\nВведите номер округа: "
-                    )
-                )
-
-                selected_district = districts[
-                    number - 1
-                ]
-
-                df = df[
-                    df["federal_district"]
-                    == selected_district
-                ]
-
-                print(
-                    f"\nВыбран округ: "
-                    f"{selected_district}"
-                )
-
-            except (
-                ValueError,
-                IndexError
-            ):
-
-                print(
-                    "Некорректный номер."
-                )
-
-    df = df.reset_index(
-        drop=True
-    )
-
     print(
-        f"\nПосле фильтрации: "
-        f"{len(df)} городов"
+        '\n' + '=' * 70,
+        'ФИЛЬТРАЦИЯ',
+        '=' * 70,
+        '\n1. Все города',
+        '2. Минимальное население',
+        '3. Федеральный округ',
+        '4. Население + федеральный округ',
+        sep='\n',
     )
+
+    choice = input('\nВыберите вариант [1]: ').strip()
+
+    if choice == '':
+        choice = '1'
+
+    if choice in ['2', '4']:
+        if 'population' not in df.columns:
+            print('\nВ базе отсутствует информация о населении.')
+        else:
+            try:
+                minimum_population = float(input('Введите минимальное население: '))
+                df = df[df['population'] >= minimum_population]
+            except ValueError:
+                print('Некорректное значение населения.')
+
+    if choice in ['3', '4']:
+        if 'federal_district' not in df.columns:
+            print('\nВ базе отсутствует информация о федеральных округах.')
+        else:
+            districts = sorted(df['federal_district'].dropna().unique().tolist())
+
+            print('\nФедеральные округа:')
+
+            for number, district in enumerate(districts, start=1):
+                print(f'{number}. {district}')
+
+            try:
+                number = int(input('\nВведите номер округа: '))
+
+                if not 1 <= number <= len(districts):
+                    raise IndexError('Номер округа вне диапазона')
+
+                selected_district = districts[number - 1]
+                df = df[df['federal_district'] == selected_district]
+
+                print(f'\nВыбран округ: {selected_district}')
+            except (ValueError, IndexError):
+                print('Некорректный номер.')
+
+    df = df.reset_index(drop=True)
+
+    print(f'\nПосле фильтрации: {len(df)} городов')
 
     return df
 
 
-# ============================================================
-# ПАПКА РЕЗУЛЬТАТОВ
-# ============================================================
-
 def prepare_folder(method_name):
-
-    folder = os.path.join(
-        RESULTS_FOLDER,
-        method_name
-    )
+    folder = os.path.join(RESULTS_FOLDER, method_name)
 
     if os.path.exists(folder):
+        shutil.rmtree(folder)
 
-        shutil.rmtree(
-            folder
-        )
-
-    os.makedirs(
-        folder,
-        exist_ok=True
-    )
+    os.makedirs(folder, exist_ok=True)
 
     return folder
 
 
-# ============================================================
-# СОХРАНЕНИЕ КЛАСТЕРОВ
-# ============================================================
-
 def save_clusters(df, folder):
+    save_csv(df, os.path.join(folder, 'all_cities.csv'))
 
-    # --------------------------------------------------------
-    # Все города
-    # --------------------------------------------------------
+    for cluster, cluster_df in df.groupby('cluster', sort=True):
+        save_csv(cluster_df, os.path.join(folder, f'cluster_{cluster}.csv'))
 
-    df.to_csv(
-        os.path.join(
-            folder,
-            "all_cities.csv"
-        ),
-        index=False,
-        encoding="utf-8-sig"
-    )
+    print('\nРезультаты сохранены:', os.path.abspath(folder), sep='\n')
 
-    # --------------------------------------------------------
-    # Каждый кластер отдельно
-    # --------------------------------------------------------
-
-    clusters = sorted(
-        df["cluster"].unique()
-    )
-
-    for cluster in clusters:
-
-        cluster_df = df[
-            df["cluster"]
-            == cluster
-        ].copy()
-
-        cluster_df.to_csv(
-            os.path.join(
-                folder,
-                f"cluster_{cluster}.csv"
-            ),
-            index=False,
-            encoding="utf-8-sig"
-        )
-
-    print(
-        "\nРезультаты сохранены:"
-    )
-
-    print(
-        os.path.abspath(
-            folder
-        )
-    )
-
-
-# ============================================================
-# МАТРИЦА ГЕОГРАФИЧЕСКИХ РАССТОЯНИЙ
-# ============================================================
 
 def calculate_distance_matrix(df):
-
-    coordinates = df[
-        [
-            "lat",
-            "lon"
-        ]
-    ].values
-
-    # Haversine требует координаты в радианах
-    coordinates_rad = np.radians(
-        coordinates
-    )
-
-    distance_matrix = (
-        haversine_distances(
-            coordinates_rad
-        )
-        * EARTH_RADIUS_KM
-    )
+    coordinates = df[['lat', 'lon']].values
+    coordinates_rad = np.radians(coordinates)
+    distance_matrix = haversine_distances(coordinates_rad) * EARTH_RADIUS_KM
 
     return distance_matrix
 
 
-# ============================================================
-# УНИВЕРСАЛЬНЫЙ ПОИСК ЛОКТЯ
-# ============================================================
+def find_elbow(x_values, y_values):
+    """Индекс точки, наиболее удалённой от линии между концами графика."""
 
-def find_elbow(
-        x_values,
-        y_values
-):
+    x = np.array(x_values, dtype=float)
+    y = np.array(y_values, dtype=float)
 
-    """
-    Поиск точки, максимально удалённой
-    от прямой между первой и последней
-    точками графика.
-
-    Перед вычислением обе оси
-    нормализуются в диапазон 0..1.
-    """
-
-    x = np.array(
-        x_values,
-        dtype=float
-    )
-
-    y = np.array(
-        y_values,
-        dtype=float
-    )
-
-    x_range = (
-        x.max()
-        - x.min()
-    )
-
-    y_range = (
-        y.max()
-        - y.min()
-    )
+    # Нормализация осей перед поиском локтя.
+    x_range = x.max() - x.min()
+    y_range = y.max() - y.min()
 
     if x_range == 0:
         return 0
@@ -562,1935 +226,615 @@ def find_elbow(
     if y_range == 0:
         return 0
 
-    # --------------------------------------------------------
-    # Нормализация
-    # --------------------------------------------------------
+    x_normalized = (x - x.min()) / x_range
+    y_normalized = (y - y.min()) / y_range
+    points = np.column_stack((x_normalized, y_normalized))
 
-    x_normalized = (
-        (x - x.min())
-        / x_range
-    )
-
-    y_normalized = (
-        (y - y.min())
-        / y_range
-    )
-
-    points = np.column_stack(
-        (
-            x_normalized,
-            y_normalized
-        )
-    )
-
+    # Расстояния точек до линии между концами графика.
     first_point = points[0]
     last_point = points[-1]
-
-    line_vector = (
-        last_point
-        - first_point
-    )
-
-    line_length = np.linalg.norm(
-        line_vector
-    )
+    line_vector = last_point - first_point
+    line_length = np.linalg.norm(line_vector)
 
     if line_length == 0:
         return 0
 
-    line_vector = (
-        line_vector
-        / line_length
-    )
-
-    vectors = (
-        points
-        - first_point
-    )
-
-    projections = np.outer(
-        np.dot(
-            vectors,
-            line_vector
-        ),
-        line_vector
-    )
-
-    distances = np.linalg.norm(
-        vectors
-        - projections,
-        axis=1
-    )
-
-    elbow_index = int(
-        np.argmax(
-            distances
-        )
-    )
+    line_vector = line_vector / line_length
+    vectors = points - first_point
+    projections = np.outer(np.dot(vectors, line_vector), line_vector)
+    distances = np.linalg.norm(vectors - projections, axis=1)
+    elbow_index = int(np.argmax(distances))
 
     return elbow_index
 
 
-# ============================================================
-# МЕТОД №1 — K-MEANS
-# ============================================================
-
 def run_kmeans(df):
-
-    print("\n" + "=" * 80)
-    print("МЕТОД №1 — K-MEANS + МЕТОД ЛОКТЯ")
-    print("=" * 80)
+    print('\n' + '=' * 80, 'МЕТОД №1 — K-MEANS + МЕТОД ЛОКТЯ', '=' * 80, sep='\n')
 
     if len(df) < 3:
-
-        print(
-            "\nНедостаточно городов."
-        )
-
+        print('\nНедостаточно городов.')
         return None
 
-    # ========================================================
-    # ИЗМЕРЕНИЕ ВРЕМЕНИ
-    # ========================================================
-
-    # perf_counter() подходит для измерения длительности
-    # выполнения вычислительных операций.
     start_time = time.perf_counter()
-
-    # --------------------------------------------------------
-    # Координаты
-    # --------------------------------------------------------
-
-    X = df[
-        [
-            "lat",
-            "lon"
-        ]
-    ].values
-
-    max_k = min(
-        MAX_K,
-        len(df) - 1
-    )
-
-    k_values = list(
-        range(
-            1,
-            max_k + 1
-        )
-    )
-
+    X = df[['lat', 'lon']].values
+    max_k = min(MAX_K, len(df) - 1)
+    k_values = list(range(1, max_k + 1))
     inertias = []
-
-    # ========================================================
-    # ПЕРЕБОР K
-    # ========================================================
-
-    print("\nПеребор количества кластеров:\n")
+    models = []
 
     print(
-        f"{'K':<10}"
-        f"{'WCSS':>20}"
-    )
-
-    print(
-        "-" * 30
+        '\nПеребор количества кластеров:\n',
+        f"{'K':<10}{'WCSS':>20}",
+        '-' * 30,
+        sep='\n',
     )
 
     for k in k_values:
+        model = KMeans(n_clusters=k, random_state=42, n_init=10)
+        model.fit(X)
+        models.append(model)
+        inertia = model.inertia_
+        inertias.append(inertia)
+        print(f'{k:<10}{inertia:>20.2f}')
 
-        model = KMeans(
-            n_clusters=k,
-            random_state=42,
-            n_init=10
-        )
+    # Выбор количества кластеров методом локтя.
+    optimal_index = find_elbow(k_values, inertias)
+    optimal_k = k_values[optimal_index]
 
-        model.fit(
-            X
-        )
+    print(f'\nОптимальное количество кластеров K = {optimal_k}')
 
-        inertia = (
-            model.inertia_
-        )
+    # Выбранная модель уже обучена при переборе K.
 
-        inertias.append(
-            inertia
-        )
+    model = models[optimal_index]
+    labels = model.labels_.copy()
+    del models
 
-        print(
-            f"{k:<10}"
-            f"{inertia:>20.2f}"
-        )
-
-    # ========================================================
-    # МЕТОД ЛОКТЯ
-    # ========================================================
-
-    optimal_index = find_elbow(
-        k_values,
-        inertias
-    )
-
-    optimal_k = k_values[
-        optimal_index
-    ]
-
-    print(
-        f"\nОптимальное количество "
-        f"кластеров K = {optimal_k}"
-    )
-
-    # ========================================================
-    # ФИНАЛЬНЫЙ K-MEANS
-    # ========================================================
-
-    model = KMeans(
-        n_clusters=optimal_k,
-        random_state=42,
-        n_init=10
-    )
-
-    labels = model.fit_predict(
-        X
-    )
-
+    # Формирование таблицы результата.
     result = df.copy()
+    result['cluster'] = labels + 1
 
-    result[
-        "cluster"
-    ] = labels + 1
-
-    # ========================================================
-    # SILHOUETTE ПО ГЕОГРАФИЧЕСКИМ РАССТОЯНИЯМ
-    # ========================================================
-
+    # Оценка качества по географическим расстояниям.
     silhouette = None
 
-    if (
-        optimal_k > 1
-        and
-        optimal_k < len(df)
-    ):
-
-        distance_matrix = (
-            calculate_distance_matrix(
-                df
-            )
-        )
+    if optimal_k > 1 and optimal_k < len(df):
+        distance_matrix = calculate_distance_matrix(df)
 
         try:
-
-            silhouette = silhouette_score(
-                distance_matrix,
-                labels,
-                metric="precomputed"
-            )
-
+            silhouette = silhouette_score(distance_matrix, labels, metric='precomputed')
         except ValueError:
-
             silhouette = None
 
-    # ========================================================
-    # ВРЕМЯ ВЫПОЛНЕНИЯ
-    # ========================================================
-
-    execution_time = (
-        time.perf_counter()
-        - start_time
-    )
-
-    # ========================================================
-    # РЕЗУЛЬТАТ
-    # ========================================================
+    execution_time = time.perf_counter() - start_time
 
     print(
-        "\n" + "=" * 80
-    )
-
-    print(
-        "РЕЗУЛЬТАТ K-MEANS"
-    )
-
-    print(
-        "=" * 80
-    )
-
-    print(
-        f"\nКоличество кластеров: "
-        f"{optimal_k}"
+        '\n' + '=' * 80,
+        'РЕЗУЛЬТАТ K-MEANS',
+        '=' * 80,
+        f'\nКоличество кластеров: {optimal_k}',
+        sep='\n',
     )
 
     if silhouette is not None:
+        print(f'Silhouette Score: {silhouette:.4f}')
+
+    print(f'Время вычислений: {execution_time:.4f} с')
+
+    for cluster in range(1, optimal_k + 1):
+        cluster_df = result[result['cluster'] == cluster]
 
         print(
-            f"Silhouette Score: "
-            f"{silhouette:.4f}"
+            f'\nКластер {cluster}: {len(cluster_df)} городов',
+            ', '.join(cluster_df['city'].astype(str).tolist()),
+            sep='\n',
         )
 
-    print(
-        f"Время вычислений: "
-        f"{execution_time:.4f} с"
-    )
+    # Сохранение результатов.
+    folder = prepare_folder('kmeans')
 
-    # --------------------------------------------------------
-    # Размеры кластеров
-    # --------------------------------------------------------
+    save_clusters(result, folder)
 
-    for cluster in range(
-        1,
-        optimal_k + 1
-    ):
+    k_search_df = pd.DataFrame({'k': k_values, 'wcss': inertias})
 
-        cluster_df = result[
-            result["cluster"]
-            == cluster
-        ]
+    save_csv(k_search_df, os.path.join(folder, 'k_search.csv'))
 
-        print(
-            f"\nКластер {cluster}: "
-            f"{len(cluster_df)} городов"
-        )
-
-        print(
-            ", ".join(
-                cluster_df[
-                    "city"
-                ]
-                .astype(str)
-                .tolist()
-            )
-        )
-
-    # ========================================================
-    # СОХРАНЕНИЕ
-    # ========================================================
-
-    folder = prepare_folder(
-        "kmeans"
-    )
-
-    save_clusters(
-        result,
-        folder
-    )
-
-    # --------------------------------------------------------
-    # Таблица перебора K
-    # --------------------------------------------------------
-
-    k_search_df = pd.DataFrame({
-
-        "k":
-            k_values,
-
-        "wcss":
-            inertias
-    })
-
-    k_search_df.to_csv(
-        os.path.join(
-            folder,
-            "k_search.csv"
-        ),
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    # ========================================================
-    # ГРАФИК ЛОКТЯ
-    # ========================================================
-
-    plt.figure(
-        figsize=(9, 6)
-    )
-
-    plt.plot(
-        k_values,
-        inertias,
-        marker="o"
-    )
-
+    plt.figure(figsize=(9, 6))
+    plt.plot(k_values, inertias, marker='o')
     plt.scatter(
         optimal_k,
-        inertias[
-            optimal_index
-        ],
+        inertias[optimal_index],
         s=180,
-        label=(
-            f"Оптимальное K = "
-            f"{optimal_k}"
-        )
+        label=f'Оптимальное K = {optimal_k}',
     )
+    plt.xlabel('Количество кластеров K')
+    plt.ylabel('WCSS')
+    plt.title('K-means — определение K методом локтя')
+    finish_plot(os.path.join(folder, 'elbow.png'))
 
-    plt.xlabel(
-        "Количество кластеров K"
-    )
+    plt.figure(figsize=(14, 8))
+    plt.scatter(result['lon'], result['lat'], c=result['cluster'], cmap='tab20', s=25)
 
-    plt.ylabel(
-        "WCSS"
-    )
-
-    plt.title(
-        "K-means — определение K методом локтя"
-    )
-
-    plt.legend()
-    plt.grid()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(
-            folder,
-            "elbow.png"
-        ),
-        dpi=200
-    )
-
-    plt.show()
-
-    # ========================================================
-    # КАРТА K-MEANS
-    # ========================================================
-
-    plt.figure(
-        figsize=(14, 8)
-    )
-
-    plt.scatter(
-        result["lon"],
-        result["lat"],
-        c=result["cluster"],
-        cmap="tab20",
-        s=25
-    )
-
-    centers = (
-        model.cluster_centers_
-    )
+    centers = model.cluster_centers_
 
     plt.scatter(
         centers[:, 1],
         centers[:, 0],
-        marker="X",
+        marker='X',
         s=200,
-        c="black",
-        label="Центры кластеров"
+        c='black',
+        label='Центры кластеров',
     )
-
-    plt.xlabel(
-        "Долгота"
-    )
-
-    plt.ylabel(
-        "Широта"
-    )
-
-    plt.title(
-        f"K-means: K = {optimal_k}"
-    )
-
-    plt.legend()
-    plt.grid()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(
-            folder,
-            "clusters.png"
-        ),
-        dpi=200
-    )
-
-    plt.show()
+    plt.xlabel('Долгота')
+    plt.ylabel('Широта')
+    plt.title(f'K-means: K = {optimal_k}')
+    finish_plot(os.path.join(folder, 'clusters.png'))
 
     return {
-
-        "method":
-            "K-means",
-
-        "clusters":
-            optimal_k,
-
-        "parameter":
-            optimal_k,
-
-        "parameter_name":
-            "K",
-
-        "silhouette":
-            silhouette,
-
-        "execution_time":
-            execution_time,
-
-        "result":
-            result
+        'method': 'K-means',
+        'clusters': optimal_k,
+        'parameter': optimal_k,
+        'parameter_name': 'K',
+        'silhouette': silhouette,
+        'execution_time': execution_time,
+        'result': result,
     }
 
 
-# ============================================================
-# СОБСТВЕННЫЙ МЕТОД КЛАСТЕРИЗАЦИИ
-# ============================================================
+def custom_clustering(distance_matrix, radius):
+    """Выбор самого плотного города с обновлением счётчиков соседей."""
 
-def custom_clustering(
-        distance_matrix,
-        radius
-):
+    if not np.isfinite(radius) or radius < 0:
+        raise ValueError('Радиус должен быть конечным и неотрицательным.')
 
-    """
-    Адаптивная радиусная кластеризация.
-
-    1. Рассматриваются ещё не распределённые города.
-
-    2. Для каждого города определяется количество
-       нераспределённых городов в радиусе R.
-
-    3. Город с максимальным количеством соседей
-       становится центром нового кластера.
-
-    4. Все нераспределённые города на расстоянии
-       не более R от этого центра включаются
-       в кластер.
-
-    5. Процесс повторяется до распределения
-       всех городов.
-
-    Количество кластеров заранее не задаётся.
-    """
-
-    n = len(
-        distance_matrix
-    )
-
-    labels = np.full(
-        n,
-        -1,
-        dtype=int
-    )
-
-    unassigned = np.ones(
-        n,
-        dtype=bool
-    )
-
+    n = len(distance_matrix)
+    labels = np.full(n, -1, dtype=int)
+    unassigned = np.ones(n, dtype=bool)
     centers = []
 
-    cluster_number = 0
+    # Соседи определяются один раз для выбранного радиуса.
+    neighbours = distance_matrix <= radius
+    neighbour_counts = neighbours.sum(axis=1)
 
-    # ========================================================
-    # ФОРМИРОВАНИЕ КЛАСТЕРОВ
-    # ========================================================
+    while np.any(unassigned):
+        center_index = int(np.argmax(neighbour_counts))
+        cluster_members = np.flatnonzero(neighbours[center_index] & unassigned)
 
-    while np.any(
-        unassigned
-    ):
+        if cluster_members.size == 0:
+            raise ValueError('У города отсутствуют соседи, включая его самого.')
 
-        # ----------------------------------------------------
-        # Нераспределённые города
-        # ----------------------------------------------------
+        labels[cluster_members] = len(centers)
+        centers.append(center_index)
+        unassigned[cluster_members] = False
+        available = np.flatnonzero(unassigned)
 
-        available = np.where(
-            unassigned
-        )[0]
+        if available.size:
+            removed_counts = neighbours[np.ix_(available, cluster_members)].sum(axis=1)
 
-        # ----------------------------------------------------
-        # Матрица расстояний между ними
-        # ----------------------------------------------------
+            # Исключаем уже распределённые города из счётчиков.
+            neighbour_counts[available] -= removed_counts
 
-        submatrix = distance_matrix[
-            np.ix_(
-                available,
-                available
-            )
-        ]
+        neighbour_counts[cluster_members] = -1
 
-        # ----------------------------------------------------
-        # Количество соседей в радиусе R
-        # ----------------------------------------------------
-
-        neighbour_counts = np.sum(
-            submatrix <= radius,
-            axis=1
-        )
-
-        # ----------------------------------------------------
-        # Самый плотный город
-        # ----------------------------------------------------
-
-        best_local_index = int(
-            np.argmax(
-                neighbour_counts
-            )
-        )
-
-        center_index = available[
-            best_local_index
-        ]
-
-        centers.append(
-            center_index
-        )
-
-        # ----------------------------------------------------
-        # Все города в радиусе R
-        # ----------------------------------------------------
-
-        cluster_members = available[
-            distance_matrix[
-                center_index,
-                available
-            ] <= radius
-        ]
-
-        # ----------------------------------------------------
-        # Присваиваем номер кластера
-        # ----------------------------------------------------
-
-        labels[
-            cluster_members
-        ] = cluster_number
-
-        # ----------------------------------------------------
-        # Удаляем распределённые города
-        # ----------------------------------------------------
-
-        unassigned[
-            cluster_members
-        ] = False
-
-        cluster_number += 1
-
-    return (
-        labels,
-        cluster_number,
-        centers
-    )
+    return (labels, len(centers), centers)
 
 
-# ============================================================
-# БАЛАНС КЛАСТЕРОВ
-# ============================================================
+def calculate_cluster_balance(labels):
+    """Равномерность размеров кластеров от 0 до 1; не влияет на выбор R."""
 
-def calculate_cluster_balance(
-        labels
-):
-
-    """
-    Дополнительная характеристика результата.
-
-    1.0 — размеры кластеров относительно равномерны.
-
-    Значение ближе к 0 означает сильное
-    доминирование отдельных кластеров.
-
-    Balance НЕ используется для выбора R.
-    """
-
-    unique_labels, counts = np.unique(
-        labels,
-        return_counts=True
-    )
-
-    cluster_count = len(
-        unique_labels
-    )
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    cluster_count = len(unique_labels)
 
     if cluster_count <= 1:
         return 0.0
 
-    probabilities = (
-        counts
-        / counts.sum()
-    )
-
-    entropy = -np.sum(
-        probabilities
-        * np.log(
-            probabilities
-        )
-    )
-
-    max_entropy = np.log(
-        cluster_count
-    )
+    probabilities = counts / counts.sum()
+    entropy = -np.sum(probabilities * np.log(probabilities))
+    max_entropy = np.log(cluster_count)
 
     if max_entropy == 0:
         return 0.0
 
-    return float(
-        entropy
-        / max_entropy
-    )
+    return float(entropy / max_entropy)
 
-
-# ============================================================
-# ПОИСК ОПТИМАЛЬНОГО РАДИУСА
-# ============================================================
 
 def find_optimal_radius(
-        distance_matrix,
-        min_radius=MIN_RADIUS,
-        max_radius=MAX_RADIUS,
-        step=RADIUS_STEP
+    distance_matrix,
+    min_radius=MIN_RADIUS,
+    max_radius=MAX_RADIUS,
+    step=RADIUS_STEP,
 ):
-
-    print("\n" + "=" * 100)
-
     print(
-        "СОБСТВЕННЫЙ МЕТОД — "
-        "АВТОМАТИЧЕСКИЙ ПОИСК РАДИУСА"
+        '\n' + '=' * 100,
+        'СОБСТВЕННЫЙ МЕТОД — АВТОМАТИЧЕСКИЙ ПОИСК РАДИУСА',
+        '=' * 100,
+        f'\nДиапазон R: {min_radius}–{max_radius} км',
+        f'Шаг: {step} км\n',
+        f"{'R, км':<10}{'Кластеров':<13}{'Silhouette':<15}{'Balance':<12}{'Макс.%':<12}{'Одиночек':<12}",
+        '-' * 100,
+        sep='\n',
     )
 
-    print("=" * 100)
-
-    print(
-        f"\nДиапазон R: "
-        f"{min_radius}–{max_radius} км"
-    )
-
-    print(
-        f"Шаг: {step} км\n"
-    )
-
-    print(
-        f"{'R, км':<10}"
-        f"{'Кластеров':<13}"
-        f"{'Silhouette':<15}"
-        f"{'Balance':<12}"
-        f"{'Макс.%':<12}"
-        f"{'Одиночек':<12}"
-    )
-
-    print(
-        "-" * 100
-    )
-
+    # Перебор радиусов.
     results = []
+    silhouette_cache = {}
+    n = len(distance_matrix)
 
-    n = len(
-        distance_matrix
-    )
-
-    # ========================================================
-    # ПЕРЕБОР РАДИУСА
-    # ========================================================
-
-    for radius in range(
-        min_radius,
-        max_radius + 1,
-        step
-    ):
-
-        (
-            labels,
-            cluster_count,
-            centers
-        ) = custom_clustering(
-            distance_matrix,
-            radius
-        )
-
-        # ----------------------------------------------------
-        # Размеры кластеров
-        # ----------------------------------------------------
-
-        unique_labels, counts = np.unique(
-            labels,
-            return_counts=True
-        )
-
-        # ----------------------------------------------------
-        # Самый большой кластер
-        # ----------------------------------------------------
-
-        largest_cluster_share = (
-            counts.max()
-            / n
-        )
-
-        # ----------------------------------------------------
-        # Количество одиночных кластеров
-        # ----------------------------------------------------
-
-        singleton_count = int(
-            np.sum(
-                counts == 1
-            )
-        )
-
-        # ----------------------------------------------------
-        # Balance
-        # ----------------------------------------------------
-
-        balance = (
-            calculate_cluster_balance(
-                labels
-            )
-        )
-
-        # ----------------------------------------------------
-        # Silhouette
-        # ----------------------------------------------------
-
+    for radius in range(min_radius, max_radius + 1, step):
+        labels, cluster_count, centers = custom_clustering(distance_matrix, radius)
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        largest_cluster_share = counts.max() / n
+        singleton_count = int(np.sum(counts == 1))
+        balance = calculate_cluster_balance(labels)
         silhouette = None
 
-        if (
-            cluster_count > 1
-            and
-            cluster_count < n
-        ):
-
+        if cluster_count > 1 and cluster_count < n:
             try:
+                labels_key = labels.tobytes()
 
-                silhouette = silhouette_score(
-                    distance_matrix,
-                    labels,
-                    metric="precomputed"
-                )
+                if labels_key not in silhouette_cache:
+                    silhouette_cache[labels_key] = silhouette_score(
+                        distance_matrix,
+                        labels,
+                        metric='precomputed',
+                    )
 
+                silhouette = silhouette_cache[labels_key]
             except ValueError:
-
                 silhouette = None
 
-        # ----------------------------------------------------
-        # Сохраняем результат
-        # ----------------------------------------------------
-
         item = {
-
-            "radius":
-                radius,
-
-            "clusters":
-                cluster_count,
-
-            "silhouette":
-                silhouette,
-
-            "balance":
-                balance,
-
-            "largest_share":
-                largest_cluster_share,
-
-            "singletons":
-                singleton_count,
-
-            "labels":
-                labels,
-
-            "centers":
-                centers
+            'radius': radius,
+            'clusters': cluster_count,
+            'silhouette': silhouette,
+            'balance': balance,
+            'largest_share': largest_cluster_share,
+            'singletons': singleton_count,
+            'labels': labels,
+            'centers': centers,
         }
-
-        results.append(
-            item
-        )
-
-        # ----------------------------------------------------
-        # Вывод строки
-        # ----------------------------------------------------
+        results.append(item)
 
         if silhouette is None:
-
-            silhouette_text = "—"
-
+            silhouette_text = '—'
         else:
-
-            silhouette_text = (
-                f"{silhouette:.4f}"
-            )
+            silhouette_text = f'{silhouette:.4f}'
 
         print(
-            f"{radius:<10}"
-            f"{cluster_count:<13}"
-            f"{silhouette_text:<15}"
-            f"{balance:<12.4f}"
-            f"{largest_cluster_share * 100:<12.1f}"
-            f"{singleton_count:<12}"
+            f'{radius:<10}{cluster_count:<13}{silhouette_text:<15}{balance:<12.4f}{largest_cluster_share * 100:<12.1f}{singleton_count:<12}',
         )
 
-    print(
-        "-" * 100
-    )
+    print('-' * 100)
 
     if not results:
-
-        print(
-            "\nНе удалось выполнить "
-            "перебор радиусов."
-        )
-
+        print('\nНе удалось выполнить перебор радиусов.')
         return None
 
-    # ========================================================
-    # МЕТОД ЛОКТЯ
-    # ========================================================
-
-    radiuses = [
-        item["radius"]
-        for item in results
-    ]
-
-    cluster_counts = [
-        item["clusters"]
-        for item in results
-    ]
-
-    elbow_index = find_elbow(
-        radiuses,
-        cluster_counts
-    )
-
-    best_result = results[
-        elbow_index
-    ]
-
-    # ========================================================
-    # РЕЗУЛЬТАТ
-    # ========================================================
+    radiuses = [item['radius'] for item in results]
+    cluster_counts = [item['clusters'] for item in results]
+    elbow_index = find_elbow(radiuses, cluster_counts)
+    best_result = results[elbow_index]
 
     print(
-        "\n" + "=" * 80
+        '\n' + '=' * 80,
+        'ТОЧКА ЛОКТЯ ДЛЯ СОБСТВЕННОГО МЕТОДА',
+        '=' * 80,
+        f"\nОптимальный радиус R = {best_result['radius']} км",
+        f"Полученное количество кластеров: {best_result['clusters']}",
+        sep='\n',
     )
+
+    if best_result['silhouette'] is not None:
+        print(f"Silhouette Score: {best_result['silhouette']:.4f}")
 
     print(
-        "ТОЧКА ЛОКТЯ ДЛЯ СОБСТВЕННОГО МЕТОДА"
+        f"Balance: {best_result['balance']:.4f}",
+        f"Самый большой кластер: {best_result['largest_share'] * 100:.1f}%",
+        f"Кластеров-одиночек: {best_result['singletons']}",
+        sep='\n',
     )
 
-    print(
-        "=" * 80
-    )
+    return (best_result, results, elbow_index)
 
-    print(
-        f"\nОптимальный радиус R = "
-        f"{best_result['radius']} км"
-    )
-
-    print(
-        f"Полученное количество кластеров: "
-        f"{best_result['clusters']}"
-    )
-
-    if (
-        best_result[
-            "silhouette"
-        ]
-        is not None
-    ):
-
-        print(
-            f"Silhouette Score: "
-            f"{best_result['silhouette']:.4f}"
-        )
-
-    print(
-        f"Balance: "
-        f"{best_result['balance']:.4f}"
-    )
-
-    print(
-        f"Самый большой кластер: "
-        f"{best_result['largest_share'] * 100:.1f}%"
-    )
-
-    print(
-        f"Кластеров-одиночек: "
-        f"{best_result['singletons']}"
-    )
-
-    return (
-        best_result,
-        results,
-        elbow_index
-    )
-
-
-# ============================================================
-# ЗАПУСК СОБСТВЕННОГО МЕТОДА
-# ============================================================
 
 def run_custom(df):
-
-    print("\n" + "=" * 80)
-
     print(
-        "МЕТОД №2 — "
-        "АДАПТИВНАЯ РАДИУСНАЯ КЛАСТЕРИЗАЦИЯ"
+        '\n' + '=' * 80,
+        'МЕТОД №2 — АДАПТИВНАЯ РАДИУСНАЯ КЛАСТЕРИЗАЦИЯ',
+        '=' * 80,
+        sep='\n',
     )
 
-    print("=" * 80)
-
     if len(df) < 3:
-
-        print(
-            "\nНедостаточно городов."
-        )
-
+        print('\nНедостаточно городов.')
         return None
-
-    # ========================================================
-    # ИЗМЕРЕНИЕ ВРЕМЕНИ
-    # ========================================================
 
     start_time = time.perf_counter()
 
-    # ========================================================
-    # МАТРИЦА РАССТОЯНИЙ
-    # ========================================================
+    print('\nРасчёт географических расстояний...')
 
-    print(
-        "\nРасчёт географических расстояний..."
-    )
+    distance_matrix = calculate_distance_matrix(df)
 
-    distance_matrix = (
-        calculate_distance_matrix(
-            df
-        )
-    )
+    print('Матрица расстояний рассчитана.')
 
-    print(
-        "Матрица расстояний рассчитана."
-    )
-
-    # ========================================================
-    # ПОИСК R
-    # ========================================================
-
-    search_result = find_optimal_radius(
-        distance_matrix
-    )
+    search_result = find_optimal_radius(distance_matrix)
 
     if search_result is None:
-
         return None
 
-    (
-        best_result,
-        all_results,
-        elbow_index
-    ) = search_result
+    best_result, all_results, elbow_index = search_result
+    optimal_radius = best_result['radius']
+    labels = best_result['labels']
+    centers = best_result['centers']
+    cluster_count = best_result['clusters']
 
-    optimal_radius = (
-        best_result[
-            "radius"
-        ]
-    )
-
-    labels = (
-        best_result[
-            "labels"
-        ]
-    )
-
-    centers = (
-        best_result[
-            "centers"
-        ]
-    )
-
-    cluster_count = (
-        best_result[
-            "clusters"
-        ]
-    )
-
-    # ========================================================
-    # ТАБЛИЦА РЕЗУЛЬТАТА
-    # ========================================================
-
+    # Формирование таблицы результата.
     result = df.copy()
+    result['cluster'] = labels + 1
+    result['is_cluster_center'] = False
+    result.loc[centers, 'is_cluster_center'] = True
 
-    result[
-        "cluster"
-    ] = labels + 1
-
-    result[
-        "is_cluster_center"
-    ] = False
-
-    result.loc[
-        centers,
-        "is_cluster_center"
-    ] = True
-
-    # --------------------------------------------------------
-    # Расстояние города до центра
-    # --------------------------------------------------------
-
-    result[
-        "distance_to_center_km"
-    ] = 0.0
-
-    for cluster_index, center_index in enumerate(
-        centers
-    ):
-
-        members = np.where(
-            labels == cluster_index
-        )[0]
-
-        result.loc[
-            members,
-            "distance_to_center_km"
-        ] = distance_matrix[
-            center_index,
-            members
-        ]
-
-    # ========================================================
-    # ВРЕМЯ ВЫПОЛНЕНИЯ
-    # ========================================================
-
-    execution_time = (
-        time.perf_counter()
-        - start_time
-    )
-
-    # ========================================================
-    # ВЫВОД
-    # ========================================================
+    # Расстояние каждого города до центра его кластера.
+    center_indices = np.asarray(centers, dtype=int)[labels]
+    result['distance_to_center_km'] = distance_matrix[center_indices, np.arange(len(labels))]
+    execution_time = time.perf_counter() - start_time
 
     print(
-        "\n" + "=" * 80
+        '\n' + '=' * 80,
+        'РЕЗУЛЬТАТ СОБСТВЕННОГО МЕТОДА',
+        '=' * 80,
+        f'\nОптимальный радиус: {optimal_radius} км',
+        f'Количество кластеров: {cluster_count}',
+        sep='\n',
     )
+
+    if best_result['silhouette'] is not None:
+        print(f"Silhouette Score: {best_result['silhouette']:.4f}")
 
     print(
-        "РЕЗУЛЬТАТ СОБСТВЕННОГО МЕТОДА"
+        f"Balance: {best_result['balance']:.4f}",
+        f'Время вычислений: {execution_time:.4f} с',
+        sep='\n',
     )
 
-    print(
-        "=" * 80
-    )
-
-    print(
-        f"\nОптимальный радиус: "
-        f"{optimal_radius} км"
-    )
-
-    print(
-        f"Количество кластеров: "
-        f"{cluster_count}"
-    )
-
-    if (
-        best_result[
-            "silhouette"
-        ]
-        is not None
-    ):
-
-        print(
-            f"Silhouette Score: "
-            f"{best_result['silhouette']:.4f}"
-        )
-
-    print(
-        f"Balance: "
-        f"{best_result['balance']:.4f}"
-    )
-
-    print(
-        f"Время вычислений: "
-        f"{execution_time:.4f} с"
-    )
-
-    # ========================================================
-    # КЛАСТЕРЫ
-    # ========================================================
-
-    for cluster in range(
-        1,
-        cluster_count + 1
-    ):
-
-        cluster_df = result[
-            result["cluster"]
-            == cluster
-        ]
-
-        center_df = cluster_df[
-            cluster_df[
-                "is_cluster_center"
-            ]
-        ]
+    for cluster in range(1, cluster_count + 1):
+        cluster_df = result[result['cluster'] == cluster]
+        center_df = cluster_df[cluster_df['is_cluster_center']]
 
         if not center_df.empty:
-
-            center_name = (
-                center_df.iloc[0][
-                    "city"
-                ]
-            )
-
+            center_name = center_df.iloc[0]['city']
         else:
+            center_name = '—'
 
-            center_name = "—"
-
-        max_distance = (
-            cluster_df[
-                "distance_to_center_km"
-            ].max()
-        )
+        max_distance = cluster_df['distance_to_center_km'].max()
 
         print(
-            f"\nКластер {cluster}: "
-            f"{len(cluster_df)} городов"
+            f'\nКластер {cluster}: {len(cluster_df)} городов',
+            f'Центр: {center_name}',
+            f'Максимальное расстояние от центра: {max_distance:.1f} км',
+            ', '.join(cluster_df['city'].astype(str).tolist()),
+            sep='\n',
         )
 
-        print(
-            f"Центр: "
-            f"{center_name}"
-        )
+    # Сохранение результатов.
+    folder = prepare_folder('custom')
 
-        print(
-            f"Максимальное расстояние "
-            f"от центра: "
-            f"{max_distance:.1f} км"
-        )
+    save_clusters(result, folder)
 
-        print(
-            ", ".join(
-                cluster_df[
-                    "city"
-                ]
-                .astype(str)
-                .tolist()
-            )
-        )
-
-    # ========================================================
-    # СОХРАНЕНИЕ
-    # ========================================================
-
-    folder = prepare_folder(
-        "custom"
-    )
-
-    save_clusters(
-        result,
-        folder
-    )
-
-    # ========================================================
-    # ТАБЛИЦА ПЕРЕБОРА R
-    # ========================================================
-
+    # Таблица результатов для всех радиусов.
     radius_table = []
 
     for item in all_results:
+        radius_table.append(
+            {
+                'radius_km': item['radius'],
+                'clusters': item['clusters'],
+                'silhouette': item['silhouette'],
+                'balance': item['balance'],
+                'largest_cluster_percent': item['largest_share'] * 100,
+                'singletons': item['singletons'],
+            },
+        )
 
-        radius_table.append({
+    radius_df = pd.DataFrame(radius_table)
 
-            "radius_km":
-                item["radius"],
+    save_csv(radius_df, os.path.join(folder, 'radius_search.csv'))
 
-            "clusters":
-                item["clusters"],
+    radiuses = [item['radius'] for item in all_results]
+    cluster_counts = [item['clusters'] for item in all_results]
 
-            "silhouette":
-                item["silhouette"],
-
-            "balance":
-                item["balance"],
-
-            "largest_cluster_percent":
-                item["largest_share"]
-                * 100,
-
-            "singletons":
-                item["singletons"]
-        })
-
-    radius_df = pd.DataFrame(
-        radius_table
-    )
-
-    radius_df.to_csv(
-        os.path.join(
-            folder,
-            "radius_search.csv"
-        ),
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    # ========================================================
-    # ГРАФИК ЛОКТЯ ДЛЯ R
-    # ========================================================
-
-    radiuses = [
-        item["radius"]
-        for item in all_results
-    ]
-
-    cluster_counts = [
-        item["clusters"]
-        for item in all_results
-    ]
-
-    plt.figure(
-        figsize=(10, 6)
-    )
-
-    plt.plot(
-        radiuses,
-        cluster_counts,
-        marker="o"
-    )
-
+    plt.figure(figsize=(10, 6))
+    plt.plot(radiuses, cluster_counts, marker='o')
     plt.scatter(
         optimal_radius,
         cluster_count,
         s=180,
-        label=(
-            f"Оптимальный R = "
-            f"{optimal_radius} км"
-        )
+        label=f'Оптимальный R = {optimal_radius} км',
     )
-
-    plt.xlabel(
-        "Радиус R, км"
-    )
-
-    plt.ylabel(
-        "Количество кластеров"
-    )
-
-    plt.title(
-        "Собственный метод — "
-        "определение радиуса методом локтя"
-    )
-
-    plt.legend()
-    plt.grid()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(
-            folder,
-            "radius_elbow.png"
-        ),
-        dpi=200
-    )
-
-    plt.show()
-
-    # ========================================================
-    # SILHOUETTE ОТ РАДИУСА
-    # ========================================================
+    plt.xlabel('Радиус R, км')
+    plt.ylabel('Количество кластеров')
+    plt.title('Собственный метод — определение радиуса методом локтя')
+    finish_plot(os.path.join(folder, 'radius_elbow.png'))
 
     silhouette_radiuses = []
-
     silhouettes = []
 
     for item in all_results:
-
-        if item["silhouette"] is not None:
-
-            silhouette_radiuses.append(
-                item["radius"]
-            )
-
-            silhouettes.append(
-                item["silhouette"]
-            )
+        if item['silhouette'] is not None:
+            silhouette_radiuses.append(item['radius'])
+            silhouettes.append(item['silhouette'])
 
     if silhouettes:
 
-        plt.figure(
-            figsize=(10, 6)
-        )
-
-        plt.plot(
-            silhouette_radiuses,
-            silhouettes,
-            marker="o"
-        )
-
+        plt.figure(figsize=(10, 6))
+        plt.plot(silhouette_radiuses, silhouettes, marker='o')
         plt.axvline(
             x=optimal_radius,
-            linestyle="--",
-            label=(
-                f"Выбранный R = "
-                f"{optimal_radius} км"
-            )
+            linestyle='--',
+            label=f'Выбранный R = {optimal_radius} км',
         )
+        plt.xlabel('Радиус R, км')
+        plt.ylabel('Silhouette Score')
+        plt.title('Silhouette Score при различных радиусах')
+        finish_plot(os.path.join(folder, 'silhouette_by_radius.png'))
 
-        plt.xlabel(
-            "Радиус R, км"
-        )
+    balances = [item['balance'] for item in all_results]
 
-        plt.ylabel(
-            "Silhouette Score"
-        )
-
-        plt.title(
-            "Silhouette Score "
-            "при различных радиусах"
-        )
-
-        plt.legend()
-        plt.grid()
-
-        plt.tight_layout()
-
-        plt.savefig(
-            os.path.join(
-                folder,
-                "silhouette_by_radius.png"
-            ),
-            dpi=200
-        )
-
-        plt.show()
-
-    # ========================================================
-    # BALANCE ОТ РАДИУСА
-    # ========================================================
-
-    balances = [
-        item["balance"]
-        for item in all_results
-    ]
-
-    plt.figure(
-        figsize=(10, 6)
-    )
-
-    plt.plot(
-        radiuses,
-        balances,
-        marker="o"
-    )
-
+    plt.figure(figsize=(10, 6))
+    plt.plot(radiuses, balances, marker='o')
     plt.axvline(
         x=optimal_radius,
-        linestyle="--",
-        label=(
-            f"Выбранный R = "
-            f"{optimal_radius} км"
-        )
+        linestyle='--',
+        label=f'Выбранный R = {optimal_radius} км',
     )
+    plt.xlabel('Радиус R, км')
+    plt.ylabel('Balance')
+    plt.title('Сбалансированность кластеров при различных радиусах')
+    finish_plot(os.path.join(folder, 'balance_by_radius.png'))
 
-    plt.xlabel(
-        "Радиус R, км"
-    )
+    plt.figure(figsize=(14, 8))
+    plt.scatter(result['lon'], result['lat'], c=result['cluster'], cmap='tab20', s=25)
 
-    plt.ylabel(
-        "Balance"
-    )
-
-    plt.title(
-        "Сбалансированность кластеров "
-        "при различных радиусах"
-    )
-
-    plt.legend()
-    plt.grid()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(
-            folder,
-            "balance_by_radius.png"
-        ),
-        dpi=200
-    )
-
-    plt.show()
-
-    # ========================================================
-    # КАРТА КЛАСТЕРОВ
-    # ========================================================
-
-    plt.figure(
-        figsize=(14, 8)
-    )
+    center_rows = result[result['is_cluster_center']]
 
     plt.scatter(
-        result["lon"],
-        result["lat"],
-        c=result["cluster"],
-        cmap="tab20",
-        s=25
-    )
-
-    center_rows = result[
-        result[
-            "is_cluster_center"
-        ]
-    ]
-
-    plt.scatter(
-        center_rows["lon"],
-        center_rows["lat"],
-        marker="X",
+        center_rows['lon'],
+        center_rows['lat'],
+        marker='X',
         s=180,
-        c="black",
-        label="Центры кластеров"
+        c='black',
+        label='Центры кластеров',
     )
-
-    plt.xlabel(
-        "Долгота"
-    )
-
-    plt.ylabel(
-        "Широта"
-    )
-
-    plt.title(
-        f"Собственный метод: "
-        f"R = {optimal_radius} км, "
-        f"кластеров = {cluster_count}"
-    )
-
-    plt.legend()
-    plt.grid()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(
-            folder,
-            "clusters.png"
-        ),
-        dpi=200
-    )
-
-    plt.show()
+    plt.xlabel('Долгота')
+    plt.ylabel('Широта')
+    plt.title(f'Собственный метод: R = {optimal_radius} км, кластеров = {cluster_count}')
+    finish_plot(os.path.join(folder, 'clusters.png'))
 
     return {
-
-        "method":
-            "Адаптивная радиусная кластеризация",
-
-        "clusters":
-            cluster_count,
-
-        "parameter":
-            optimal_radius,
-
-        "parameter_name":
-            "R, км",
-
-        "silhouette":
-            best_result[
-                "silhouette"
-            ],
-
-        "balance":
-            best_result[
-                "balance"
-            ],
-
-        "execution_time":
-            execution_time,
-
-        "result":
-            result
+        'method': 'Адаптивная радиусная кластеризация',
+        'clusters': cluster_count,
+        'parameter': optimal_radius,
+        'parameter_name': 'R, км',
+        'silhouette': best_result['silhouette'],
+        'balance': best_result['balance'],
+        'execution_time': execution_time,
+        'result': result,
     }
 
 
-# ============================================================
-# СРАВНЕНИЕ МЕТОДОВ
-# ============================================================
-
-def compare_methods(
-        kmeans_result,
-        custom_result
-):
-
-    if (
-        kmeans_result is None
-        or
-        custom_result is None
-    ):
-
+def compare_methods(kmeans_result, custom_result):
+    if kmeans_result is None or custom_result is None:
         return
 
     print(
-        "\n" + "=" * 85
+        '\n' + '=' * 85,
+        'СРАВНЕНИЕ МЕТОДОВ',
+        '=' * 85,
+        f"\n{'Показатель':<30}{'K-means':<22}{'Собственный метод':<25}",
+        '-' * 77,
+        f"{'Количество кластеров':<30}{kmeans_result['clusters']:<22}{custom_result['clusters']:<25}",
+        sep='\n',
     )
 
-    print(
-        "СРАВНЕНИЕ МЕТОДОВ"
-    )
-
-    print(
-        "=" * 85
-    )
-
-    print(
-        f"\n{'Показатель':<30}"
-        f"{'K-means':<22}"
-        f"{'Собственный метод':<25}"
-    )
-
-    print(
-        "-" * 77
-    )
-
-    print(
-        f"{'Количество кластеров':<30}"
-        f"{kmeans_result['clusters']:<22}"
-        f"{custom_result['clusters']:<25}"
-    )
-
-    # --------------------------------------------------------
-    # Silhouette
-    # --------------------------------------------------------
-
-    if (
-        kmeans_result[
-            "silhouette"
-        ]
-        is not None
-    ):
-
-        k_silhouette = (
-            f"{kmeans_result['silhouette']:.4f}"
-        )
-
+    if kmeans_result['silhouette'] is not None:
+        k_silhouette = f"{kmeans_result['silhouette']:.4f}"
     else:
+        k_silhouette = '—'
 
-        k_silhouette = "—"
-
-    if (
-        custom_result[
-            "silhouette"
-        ]
-        is not None
-    ):
-
-        custom_silhouette = (
-            f"{custom_result['silhouette']:.4f}"
-        )
-
+    if custom_result['silhouette'] is not None:
+        custom_silhouette = f"{custom_result['silhouette']:.4f}"
     else:
-
-        custom_silhouette = "—"
-
-    print(
-        f"{'Silhouette Score':<30}"
-        f"{k_silhouette:<22}"
-        f"{custom_silhouette:<25}"
-    )
+        custom_silhouette = '—'
 
     print(
-        f"{'Оптимальное K':<30}"
-        f"{kmeans_result['parameter']:<22}"
-        f"{'-':<25}"
+        f"{'Silhouette Score':<30}{k_silhouette:<22}{custom_silhouette:<25}",
+        f"{'Оптимальное K':<30}{kmeans_result['parameter']:<22}{'-':<25}",
+        f"{'Оптимальный R, км':<30}{'-':<22}{custom_result['parameter']:<25}",
+        f"{'Balance':<30}{'-':<22}{custom_result['balance']:<25.4f}",
+        f"{'Время вычислений, с':<30}{kmeans_result['execution_time']:<22.4f}{custom_result['execution_time']:<25.4f}",
+        sep='\n',
     )
 
-    print(
-        f"{'Оптимальный R, км':<30}"
-        f"{'-':<22}"
-        f"{custom_result['parameter']:<25}"
+    comparison = pd.DataFrame(
+        {
+            'method': ['K-means', 'Adaptive radius clustering'],
+            'clusters': [kmeans_result['clusters'], custom_result['clusters']],
+            'parameter_name': ['K', 'R, km'],
+            'parameter': [kmeans_result['parameter'], custom_result['parameter']],
+            'silhouette': [kmeans_result['silhouette'], custom_result['silhouette']],
+            'balance': [np.nan, custom_result['balance']],
+            'execution_time_seconds': [kmeans_result['execution_time'], custom_result['execution_time']],
+        },
     )
+    os.makedirs(RESULTS_FOLDER, exist_ok=True)
+    comparison_file = os.path.join(RESULTS_FOLDER, 'comparison.csv')
 
-    print(
-        f"{'Balance':<30}"
-        f"{'-':<22}"
-        f"{custom_result['balance']:<25.4f}"
-    )
+    save_csv(comparison, comparison_file)
 
-    print(
-        f"{'Время вычислений, с':<30}"
-        f"{kmeans_result['execution_time']:<22.4f}"
-        f"{custom_result['execution_time']:<25.4f}"
-    )
+    print('\nСравнение сохранено:', comparison_file, sep='\n')
 
-    # ========================================================
-    # СОХРАНЕНИЕ СРАВНЕНИЯ
-    # ========================================================
-
-    comparison = pd.DataFrame({
-
-        "method": [
-            "K-means",
-            "Adaptive radius clustering"
-        ],
-
-        "clusters": [
-            kmeans_result[
-                "clusters"
-            ],
-            custom_result[
-                "clusters"
-            ]
-        ],
-
-        "parameter_name": [
-            "K",
-            "R, km"
-        ],
-
-        "parameter": [
-            kmeans_result[
-                "parameter"
-            ],
-            custom_result[
-                "parameter"
-            ]
-        ],
-
-        "silhouette": [
-            kmeans_result[
-                "silhouette"
-            ],
-            custom_result[
-                "silhouette"
-            ]
-        ],
-
-        "balance": [
-            np.nan,
-            custom_result[
-                "balance"
-            ]
-        ],
-
-        "execution_time_seconds": [
-            kmeans_result[
-                "execution_time"
-            ],
-            custom_result[
-                "execution_time"
-            ]
-        ]
-    })
-
-    os.makedirs(
-        RESULTS_FOLDER,
-        exist_ok=True
-    )
-
-    comparison_file = os.path.join(
-        RESULTS_FOLDER,
-        "comparison.csv"
-    )
-
-    comparison.to_csv(
-        comparison_file,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print(
-        "\nСравнение сохранено:"
-    )
-
-    print(
-        comparison_file
-    )
-
-
-# ============================================================
-# ГЛАВНАЯ ПРОГРАММА
-# ============================================================
 
 def main():
-
     print(
-        "\n" + "=" * 70
+        '\n' + '=' * 70,
+        'КЛАСТЕРИЗАЦИЯ ГОРОДОВ РОССИИ',
+        'Сравнение стандартного и собственного методов',
+        '=' * 70,
+        sep='\n',
     )
-
-    print(
-        "КЛАСТЕРИЗАЦИЯ ГОРОДОВ РОССИИ"
-    )
-
-    print(
-        "Сравнение стандартного "
-        "и собственного методов"
-    )
-
-    print(
-        "=" * 70
-    )
-
-    # ========================================================
-    # ЗАГРУЗКА
-    # ========================================================
 
     original_df = load_data()
 
     if original_df is None:
-
         return
 
-    os.makedirs(
-        RESULTS_FOLDER,
-        exist_ok=True
-    )
-
-    current_df = (
-        original_df.copy()
-    )
-
-    # ========================================================
-    # МЕНЮ
-    # ========================================================
+    os.makedirs(RESULTS_FOLDER, exist_ok=True)
+    current_df = original_df.copy()
 
     while True:
-
         print(
-            "\n" + "=" * 70
+            '\n' + '=' * 70,
+            'ГЛАВНОЕ МЕНЮ',
+            '=' * 70,
+            f'\nТекущий набор данных: {len(current_df)} городов\n',
+            '1. Показать информацию о данных',
+            '2. Настроить фильтрацию',
+            '3. Сбросить фильтры',
+            '4. Запустить K-means + метод локтя',
+            '5. Запустить собственный метод',
+            '6. Запустить оба метода и сравнить',
+            '0. Выход',
+            sep='\n',
         )
 
-        print(
-            "ГЛАВНОЕ МЕНЮ"
-        )
+        choice = input('\nВыберите действие: ').strip()
 
-        print(
-            "=" * 70
-        )
+        if choice == '1':
+            show_data_info(current_df)
+        elif choice == '2':
+            current_df = filter_data(original_df)
+        elif choice == '3':
+            current_df = original_df.copy()
 
-        print(
-            f"\nТекущий набор данных: "
-            f"{len(current_df)} городов\n"
-        )
+            print('\nФильтры сброшены.')
+        elif choice == '4':
+            run_kmeans(current_df)
+        elif choice == '5':
+            run_custom(current_df)
+        elif choice == '6':
+            print('\nЗапуск K-means...')
 
-        print(
-            "1. Показать информацию о данных"
-        )
+            kmeans_result = run_kmeans(current_df)
 
-        print(
-            "2. Настроить фильтрацию"
-        )
+            print('\nЗапуск собственного метода...')
 
-        print(
-            "3. Сбросить фильтры"
-        )
-
-        print(
-            "4. Запустить K-means + метод локтя"
-        )
-
-        print(
-            "5. Запустить собственный метод"
-        )
-
-        print(
-            "6. Запустить оба метода и сравнить"
-        )
-
-        print(
-            "0. Выход"
-        )
-
-        choice = input(
-            "\nВыберите действие: "
-        ).strip()
-
-        # ====================================================
-        # ИНФОРМАЦИЯ
-        # ====================================================
-
-        if choice == "1":
-
-            show_data_info(
-                current_df
-            )
-
-        # ====================================================
-        # ФИЛЬТРАЦИЯ
-        # ====================================================
-
-        elif choice == "2":
-
-            current_df = filter_data(
-                original_df
-            )
-
-        # ====================================================
-        # СБРОС
-        # ====================================================
-
-        elif choice == "3":
-
-            current_df = (
-                original_df.copy()
-            )
-
-            print(
-                "\nФильтры сброшены."
-            )
-
-        # ====================================================
-        # K-MEANS
-        # ====================================================
-
-        elif choice == "4":
-
-            run_kmeans(
-                current_df
-            )
-
-        # ====================================================
-        # СОБСТВЕННЫЙ МЕТОД
-        # ====================================================
-
-        elif choice == "5":
-
-            run_custom(
-                current_df
-            )
-
-        # ====================================================
-        # СРАВНЕНИЕ
-        # ====================================================
-
-        elif choice == "6":
-
-            print(
-                "\nЗапуск K-means..."
-            )
-
-            kmeans_result = run_kmeans(
-                current_df
-            )
-
-            print(
-                "\nЗапуск собственного метода..."
-            )
-
-            custom_result = run_custom(
-                current_df
-            )
-
-            compare_methods(
-                kmeans_result,
-                custom_result
-            )
-
-        # ====================================================
-        # ВЫХОД
-        # ====================================================
-
-        elif choice == "0":
-
-            print(
-                "\nРабота программы завершена."
-            )
-
+            custom_result = run_custom(current_df)
+            compare_methods(kmeans_result, custom_result)
+        elif choice == '0':
+            print('\nРабота программы завершена.')
             break
-
         else:
-
-            print(
-                "\nНеизвестная команда."
-            )
+            print('\nНеизвестная команда.')
 
 
-# ============================================================
-# ЗАПУСК
-# ============================================================
 
-if __name__ == "__main__":
-
+if __name__ == '__main__':
     main()
