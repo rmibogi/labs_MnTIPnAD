@@ -1,0 +1,3 @@
+﻿city,population,lat,lon,region_name,region_name_ao,region_iso_code,federal_district,okato,oktmo,kladr_id,fias_id,place_id,cluster,is_cluster_center,distance_to_center_km
+Билибино,5.5,68.0584191,166.4388172,Чукотский автономный округ,,RU-CHU,Дальневосточный,77209501000,77609101,8700300100000,c012d402-217c-488a-85f3-52b3312ddab6,104537398.0,40,True,0.0
+Певек,4.5,69.7016661,170.2999022,Чукотский автономный округ,,RU-CHU,Дальневосточный,77230501000,77705000001,8700600100000,e8a6aabb-9ea3-4862-9bf7-4b35460e98a4,124058971.0,40,False,239.32374154843274

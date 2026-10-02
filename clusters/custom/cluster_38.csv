@@ -1,0 +1,3 @@
+﻿city,population,lat,lon,region_name,region_name_ao,region_iso_code,federal_district,okato,oktmo,kladr_id,fias_id,place_id,cluster,is_cluster_center,distance_to_center_km
+Покровск,9.4,61.4843503,129.1482392,Республика Саха (Якутия),,RU-SA,Дальневосточный,98420000000,98644101001,1403200100000,fbe75414-a226-41f0-916b-de889d2c84c8,127241536.0,38,True,0.0
+Якутск,323.0,62.0281405,129.7325887,Республика Саха (Якутия),,RU-SA,Дальневосточный,98401000000,98701000001,1400000100000,884c84a2-0141-4652-962d-8a92989b88f7,313848847.0,38,False,67.83514469255738
