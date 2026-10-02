@@ -1,3 +1,0 @@
-﻿city,population,lat,lon,region_name,region_name_ao,region_iso_code,federal_district,okato,oktmo,kladr_id,fias_id,place_id,cluster,is_cluster_center,distance_to_center_km
-Оха,20.0,53.5867839,142.9412411,Сахалинская область,,RU-SAK,Дальневосточный,64236501000,64736000001,6500900100000,273e561f-aa3b-4057-9225-862563c93287,108230715.0,39,True,0.0
-Николаевск-на-Амуре,17.9,53.1460657,140.7111367,Хабаровский край,,RU-KHA,Дальневосточный,8414000000,8631101001,2700000600000,7a58fb7c-6d03-46e4-b5fc-3f5b587c09be,259179347.0,39,False,155.86242375183025

@@ -1,3 +1,0 @@
-﻿method,clusters,parameter_name,parameter,silhouette,balance,execution_time_seconds
-K-means,4,K,4,0.4279523511833271,,0.6072142999910284
-Adaptive radius clustering,55,"R, km",350,0.2411332227756505,0.7518277107222788,0.8872153999982402
